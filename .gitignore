@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+*.zip
+.ganjoor_dl.zip
+.ganjoor_new.s3db

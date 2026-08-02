@@ -193,13 +193,24 @@ class GanjoorIndicator extends PanelMenu.Button {
         this._m1.text = 'برای دیدن بیت، «بیتِ تازه» را بزنید.';
     }
 
+    _selectedPoetsArg() {
+        // schema key `selected-poets` is an array of poet-id strings.
+        // Empty -> no argument -> helper picks from all poets.
+        let ids = this._settings.get_strv('selected-poets');
+        return (ids && ids.length) ? ids.join(',') : null;
+    }
+
     _pickNewBeyt() {
         let py = _python();
         if (!py) { this._flash('python3 نصب نیست.'); return; }
         let db = this._dbPath();
 
+        let argv = [py, HELPER, 'beyt', db];
+        let poets = this._selectedPoetsArg();
+        if (poets) argv.push(poets);
+
         this._newItem.label.text = 'در حال خواندن…';
-        spawnCollect([py, HELPER, 'beyt', db], (out, err) => {
+        spawnCollect(argv, (out, err) => {
             this._newItem.label.text = 'بیتِ تازه';
             let r = lastJsonLine(out);
             if (r && r.ok) {
@@ -213,6 +224,8 @@ class GanjoorIndicator extends PanelMenu.Button {
                     this._notify(r);
             } else if (r && r.error === 'db_missing') {
                 this._flash('دیتابیس یافت نشد — «به‌روزرسانی دیتابیس» را بزنید یا مسیرش را در تنظیمات بدهید.');
+            } else if (r && r.error === 'no_verse_for_poets') {
+                this._flash('از شاعرانِ انتخاب‌شده بیتی یافت نشد — انتخاب را در تنظیمات بازبینی کنید.');
             } else {
                 this._flash('خطا در خواندن دیتابیس.');
             }

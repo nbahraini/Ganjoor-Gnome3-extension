@@ -21,6 +21,12 @@
       <summary>اعلان هنگام بیت تازه</summary>
     </key>
 
+    <key name="selected-poets" type="as">
+      <default>[]</default>
+      <summary>شاعران انتخاب‌شده</summary>
+      <description>فهرست شناسهٔ شاعرانی که ابیات فقط از میان آن‌ها انتخاب می‌شود. اگر خالی باشد، از همهٔ شاعران استفاده می‌شود.</description>
+    </key>
+
     <key name="last-beyt" type="s">
       <default>''</default>
       <summary>آخرین بیت نمایش‌داده‌شده (کش)</summary>

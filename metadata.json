@@ -2,7 +2,12 @@
   "uuid": "ganjoor-beyt@ganjoor.local",
   "name": "بیت گنجور (Ganjoor Daily Beyt)",
   "description": "نمایش روزانه و تصادفی یک بیت شعر از دیتابیس SQLite گنجور در نوار بالای گنوم، با قابلیت به‌روزرسانی آنلاین دیتابیس از مخزن رسمی گنجور.",
-  "shell-version": ["42", "43", "44"],
+  "shell-version": [
+    "42",
+    "43",
+    "44"
+  ],
   "settings-schema": "org.gnome.shell.extensions.ganjoor-beyt",
-  "url": "https://ganjoor.net"
+  "url": "https://ganjoor.net",
+  "version-name": "0.2"
 }

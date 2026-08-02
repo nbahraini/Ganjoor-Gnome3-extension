@@ -18,6 +18,35 @@ function _defaultDbPath() {
         [GLib.get_user_data_dir(), 'ganjoor', 'ganjoor.s3db']);
 }
 
+// Run `ganjoor_helper.py poets <db>` and hand the parsed result to `cb`.
+// cb(poets, errorCode) where poets is an array of {id, name, poems} or null.
+function _loadPoets(db, cb) {
+    const py = _python();
+    if (!py) { cb(null, 'no_python'); return; }
+    let proc;
+    try {
+        proc = Gio.Subprocess.new(
+            [py, HELPER, 'poets', db],
+            Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_PIPE);
+    } catch (e) {
+        cb(null, 'spawn_failed');
+        return;
+    }
+    proc.communicate_utf8_async(null, null, (p, res) => {
+        let out = '';
+        try { [, out] = p.communicate_utf8_finish(res); }
+        catch (e) { cb(null, 'io_failed'); return; }
+        let r = null;
+        const lines = (out || '').split('\n').filter(l => l.trim());
+        if (lines.length) {
+            try { r = JSON.parse(lines[lines.length - 1]); } catch (e) {}
+        }
+        if (r && r.ok) cb(r.poets || [], null);
+        else if (r && r.error) cb(null, r.error);
+        else cb(null, 'bad_output');
+    });
+}
+
 function fillPreferencesWindow(window) {
     const settings = ExtensionUtils.getSettings();
     const page = new Adw.PreferencesPage();
@@ -135,6 +164,146 @@ function fillPreferencesWindow(window) {
     notifyRow.add_suffix(sw);
     notifyRow.activatable_widget = sw;
     behGroup.add(notifyRow);
+
+    /* ---- poets group ---- */
+    const poetsGroup = new Adw.PreferencesGroup({
+        title: 'شاعران',
+        description: 'ابیات فقط از شاعرانِ انتخاب‌شده نمایش داده می‌شود. ' +
+                     'اگر هیچ شاعری انتخاب نشود، از همهٔ شاعران استفاده می‌شود.',
+    });
+    page.add(poetsGroup);
+
+    // header buttons: reload / select-all / select-none
+    const headerBox = new Gtk.Box({
+        orientation: Gtk.Orientation.HORIZONTAL,
+        spacing: 6,
+        valign: Gtk.Align.CENTER,
+    });
+    const reloadBtn = new Gtk.Button({
+        icon_name: 'view-refresh-symbolic',
+        tooltip_text: 'بارگذاری دوبارهٔ فهرست شاعران',
+        css_classes: ['flat'],
+    });
+    const allBtn  = new Gtk.Button({ label: 'همه',       css_classes: ['flat'] });
+    const noneBtn = new Gtk.Button({ label: 'هیچ‌کدام', css_classes: ['flat'] });
+    headerBox.append(reloadBtn);
+    headerBox.append(allBtn);
+    headerBox.append(noneBtn);
+    poetsGroup.set_header_suffix(headerBox);
+
+    // search box (added as the first child of the group)
+    const searchEntry = new Gtk.SearchEntry({
+        placeholder_text: 'جست‌وجوی نام شاعر…',
+        hexpand: true,
+        margin_top: 6,
+        margin_bottom: 6,
+    });
+    poetsGroup.add(searchEntry);
+
+    // a status/placeholder row shown while loading or on error
+    const poetsStatus = new Adw.ActionRow({ title: 'در حال بارگذاری…' });
+    poetsGroup.add(poetsStatus);
+
+    // in-memory selection set (strings, to match the `as` schema type)
+    let selected = new Set(settings.get_strv('selected-poets'));
+    let poetRows = [];   // { row, check, name }
+
+    function persist() {
+        settings.set_strv('selected-poets', [...selected]);
+    }
+
+    function clearPoetRows() {
+        for (const pr of poetRows) poetsGroup.remove(pr.row);
+        poetRows = [];
+    }
+
+    function applyFilter() {
+        const q = searchEntry.text.trim();
+        for (const pr of poetRows)
+            pr.row.visible = q.length === 0 || pr.name.includes(q);
+    }
+
+    function setVisibleChecked(state) {
+        for (const pr of poetRows) {
+            if (!pr.row.visible) continue;
+            if (pr.check.active !== state) pr.check.active = state; // fires toggled
+        }
+    }
+
+    function buildPoetRows(poets) {
+        clearPoetRows();
+        // prune any selected ids that no longer exist in this database
+        const existing = new Set(poets.map(p => String(p.id)));
+        let pruned = false;
+        for (const id of [...selected]) {
+            if (!existing.has(id)) { selected.delete(id); pruned = true; }
+        }
+        if (pruned) persist();
+
+        for (const p of poets) {
+            const id = String(p.id);
+            const row = new Adw.ActionRow({
+                title: p.name || '(بی‌نام)',
+                subtitle: `${p.poems} شعر`,
+            });
+            const check = new Gtk.CheckButton({
+                valign: Gtk.Align.CENTER,
+                active: selected.has(id),
+            });
+            check.connect('toggled', () => {
+                if (check.active) selected.add(id);
+                else selected.delete(id);
+                persist();
+            });
+            row.add_prefix(check);
+            row.activatable_widget = check;
+            poetsGroup.add(row);
+            poetRows.push({ row, check, name: p.name || '' });
+        }
+        applyFilter();
+    }
+
+    function refreshPoets() {
+        clearPoetRows();
+        poetsStatus.visible = true;
+        poetsStatus.title = 'در حال بارگذاری…';
+        const db = settings.get_string('database-path') || _defaultDbPath();
+        _loadPoets(db, (poets, err) => {
+            if (poets) {
+                if (poets.length === 0) {
+                    poetsStatus.title = 'شاعری در دیتابیس یافت نشد.';
+                    poetsStatus.visible = true;
+                } else {
+                    poetsStatus.visible = false;
+                    buildPoetRows(poets);
+                }
+            } else if (err === 'db_missing') {
+                poetsStatus.title =
+                    'دیتابیس یافت نشد — ابتدا آن را دریافت یا مسیرش را تنظیم کنید.';
+                poetsStatus.visible = true;
+            } else if (err === 'no_python') {
+                poetsStatus.title = 'python3 نصب نیست.';
+                poetsStatus.visible = true;
+            } else {
+                poetsStatus.title = 'خطا در خواندن فهرست شاعران.';
+                poetsStatus.visible = true;
+            }
+        });
+    }
+
+    searchEntry.connect('search-changed', applyFilter);
+    reloadBtn.connect('clicked', refreshPoets);
+    allBtn.connect('clicked',  () => setVisibleChecked(true));
+    noneBtn.connect('clicked', () => setVisibleChecked(false));
+
+    // reload the list whenever the database path changes in settings
+    const _poetsPathHandler = settings.connect(
+        'changed::database-path', () => refreshPoets());
+    poetsGroup.connect('destroy', () => {
+        try { settings.disconnect(_poetsPathHandler); } catch (e) {}
+    });
+
+    refreshPoets();
 
     /* ---- source group ---- */
     const srcGroup = new Adw.PreferencesGroup({

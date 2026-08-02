@@ -8,7 +8,11 @@ GNOME Shell main loop is never blocked. All output is JSON (one object per
 line) on stdout.
 
 Commands:
-    beyt   <db_path>              -> one random couplet
+    beyt   <db_path> [poet_ids]   -> one random couplet
+                                     (poet_ids: optional comma-separated list of
+                                      poet ids to restrict the pick to)
+    poets  <db_path>              -> list of poets that have couplets
+                                     (one JSON object per line: id / name / poems)
     info   <db_path>              -> counts (poets / poems / verses)
     update <db_path> <api_url>    -> download latest ganjoor.s3db and replace db
 """
@@ -26,6 +30,10 @@ UA = {"User-Agent": "ganjoor-beyt-gnome-extension"}
 # A بیت (couplet) = two مصراع (hemistichs): position 0 (right) + position 1 (left)
 # with consecutive vorder in the same poem. We first pick a random poem (fast),
 # then a random couplet inside it, and join up to the poet name + poem title.
+#
+# The inner sub-query that chooses the random poem is built at run time so that,
+# when the user has restricted the selection to certain poets, only poems that
+# belong to those poets are considered. {POEM_PICK} is replaced accordingly.
 BEYT_QUERY = """
 SELECT poet.name, poem.title, v1.text, v2.text
 FROM verse v1
@@ -37,9 +45,32 @@ JOIN poem ON poem.id     = v1.poem_id
 JOIN cat  ON poem.cat_id = cat.id
 JOIN poet ON cat.poet_id = poet.id
 WHERE v1.position = 0
-  AND v1.poem_id = (SELECT id FROM poem ORDER BY RANDOM() LIMIT 1)
+  AND v1.poem_id = ({POEM_PICK})
 ORDER BY RANDOM()
 LIMIT 1;
+"""
+
+# Random poem across the whole database (no poet restriction).
+POEM_PICK_ANY = "SELECT id FROM poem ORDER BY RANDOM() LIMIT 1"
+
+# Random poem restricted to a set of poet ids ({IDS} -> ?,?,… placeholders).
+POEM_PICK_BY_POET = """
+SELECT poem.id FROM poem
+JOIN cat ON poem.cat_id = cat.id
+WHERE cat.poet_id IN ({IDS})
+ORDER BY RANDOM() LIMIT 1
+"""
+
+# All poets that actually own at least one poem (so the settings list never
+# shows empty categories). Ordered by name for a stable, readable list.
+POETS_QUERY = """
+SELECT poet.id, poet.name, COUNT(DISTINCT poem.id) AS n
+FROM poet
+JOIN cat  ON cat.poet_id = poet.id
+JOIN poem ON poem.cat_id = cat.id
+GROUP BY poet.id, poet.name
+HAVING n > 0
+ORDER BY poet.name COLLATE NOCASE;
 """
 
 
@@ -53,23 +84,72 @@ def open_ro(db):
     return sqlite3.connect("file:%s?mode=ro" % db, uri=True)
 
 
-def cmd_beyt(db):
+def _parse_poet_ids(raw):
+    """Turn a comma-separated string into a list of positive ints."""
+    ids = []
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            n = int(part)
+        except ValueError:
+            continue
+        if n > 0:
+            ids.append(n)
+    return ids
+
+
+def cmd_beyt(db, poet_ids=None):
     if not os.path.exists(db):
         emit({"ok": False, "error": "db_missing"})
         return
     con = open_ro(db)
     cur = con.cursor()
+
+    if poet_ids:
+        placeholders = ",".join("?" * len(poet_ids))
+        pick = POEM_PICK_BY_POET.format(IDS=placeholders)
+        query = BEYT_QUERY.format(POEM_PICK=pick)
+        params = poet_ids
+    else:
+        query = BEYT_QUERY.format(POEM_PICK=POEM_PICK_ANY)
+        params = []
+
     row = None
     for _ in range(10):  # some random poems are prose and yield no couplet
-        row = cur.execute(BEYT_QUERY).fetchone()
+        row = cur.execute(query, params).fetchone()
         if row:
             break
     con.close()
     if not row:
-        emit({"ok": False, "error": "no_verse"})
+        # With a poet filter this most likely means the chosen poets have no
+        # couplets (e.g. prose-only); distinguish it so the UI can explain.
+        emit({"ok": False,
+              "error": "no_verse_for_poets" if poet_ids else "no_verse"})
         return
     emit({"ok": True, "poet": row[0] or "", "title": row[1] or "",
           "m1": (row[2] or "").strip(), "m2": (row[3] or "").strip()})
+
+
+def cmd_poets(db):
+    if not os.path.exists(db):
+        emit({"ok": False, "error": "db_missing"})
+        return
+    con = open_ro(db)
+    cur = con.cursor()
+    try:
+        rows = cur.execute(POETS_QUERY).fetchall()
+    except Exception as e:
+        con.close()
+        emit({"ok": False, "error": "bad_db", "detail": str(e)})
+        return
+    con.close()
+    # Emit a header first, then one line per poet. The extension reads all
+    # lines, so a single object with a list keeps parsing trivial.
+    emit({"ok": True, "count": len(rows),
+          "poets": [{"id": r[0], "name": r[1] or "", "poems": r[2]}
+                    for r in rows]})
 
 
 def cmd_info(db):
@@ -177,7 +257,10 @@ def main():
     cmd = sys.argv[1]
     db = os.path.expanduser(sys.argv[2])
     if cmd == "beyt":
-        cmd_beyt(db)
+        poet_ids = _parse_poet_ids(sys.argv[3]) if len(sys.argv) > 3 else None
+        cmd_beyt(db, poet_ids)
+    elif cmd == "poets":
+        cmd_poets(db)
     elif cmd == "info":
         cmd_info(db)
     elif cmd == "update":
