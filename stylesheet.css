@@ -1,0 +1,22 @@
+.ganjoor-display {
+    padding: 10px 16px;
+}
+
+.ganjoor-mesra {
+    font-size: 15px;
+    text-align: right;
+    padding: 2px 0;
+    max-width: 420px;
+}
+
+.ganjoor-caption {
+    font-size: 11px;
+    text-align: right;
+    opacity: 0.65;
+    padding-top: 6px;
+}
+
+.ganjoor-status {
+    font-size: 12px;
+    opacity: 0.8;
+}

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.ganjoor-beyt"
+          path="/org/gnome/shell/extensions/ganjoor-beyt/">
+
+    <key name="database-path" type="s">
+      <default>''</default>
+      <summary>مسیر فایل دیتابیس ganjoor.s3db</summary>
+      <description>مسیر کامل فایل SQLite گنجور. اگر خالی باشد، مسیر پیش‌فرض ~/.local/share/ganjoor/ganjoor.s3db استفاده می‌شود.</description>
+    </key>
+
+    <key name="refresh-interval-hours" type="i">
+      <default>24</default>
+      <range min="0" max="720"/>
+      <summary>فاصلهٔ به‌روزرسانی بیت (ساعت)</summary>
+      <description>هر چند ساعت یک بیت تازه انتخاب شود. صفر یعنی فقط دستی.</description>
+    </key>
+
+    <key name="notify-on-new" type="b">
+      <default>true</default>
+      <summary>اعلان هنگام بیت تازه</summary>
+    </key>
+
+    <key name="last-beyt" type="s">
+      <default>''</default>
+      <summary>آخرین بیت نمایش‌داده‌شده (کش)</summary>
+    </key>
+
+    <key name="last-refresh" type="x">
+      <default>0</default>
+      <summary>زمان آخرین انتخاب بیت (unix)</summary>
+    </key>
+
+    <key name="update-api-url" type="s">
+      <default>'https://api.github.com/repos/ganjoor/desktop/releases/latest'</default>
+      <summary>آدرس API برای یافتن آخرین دیتابیس گنجور</summary>
+    </key>
+
+  </schema>
+</schemalist>

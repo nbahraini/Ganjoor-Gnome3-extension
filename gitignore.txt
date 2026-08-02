@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+
+# Downloaded / generated artifacts (should NOT be in the repo)
+*.s3db
+*.sqlite
+*.db
+*.zip
+
+# Editor noise
+*.swp
+.DS_Store
